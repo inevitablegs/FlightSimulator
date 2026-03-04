@@ -7,7 +7,7 @@ public class Controls : MonoBehaviour
     public float acceleration = 10f;
     public float deceleration = 5f;
     public float idleDrag = 2f;
-    public float turnSpeed = 80f;
+    public float turnSpeed = 10f;
 
     [Header("Realistic Takeoff Settings")]
     public float takeoffSpeed = 20f;
@@ -23,7 +23,7 @@ public class Controls : MonoBehaviour
 
     [Header("Flight Dynamics")]
     public float maxBankAngle = 45f;
-    public float rollControlSpeed = 3f;
+    public float rollControlSpeed = .3f;
     public float pitchControlSpeed = 60f;
 
     private Rigidbody rb;
@@ -52,10 +52,45 @@ public class Controls : MonoBehaviour
         bool nearGround = Physics.Raycast(transform.position, Vector3.down, groundCheckDistance);
         float altitudeAboveGround = transform.position.y - groundLevel;
 
-        // 1. Turn
-        float turn = Input.GetAxis("Horizontal") * turnSpeed * Time.fixedDeltaTime;
-        Quaternion turnRotation = Quaternion.Euler(0f, turn, 0f);
-        rb.MoveRotation(rb.rotation * turnRotation);
+        // 1. Turn, Roll, and Pitch
+        float turnInput = Input.GetAxis("Horizontal");
+
+        if (isAirborne && !isLanding)
+        {
+            // --- Realistic Airborne Movement ---
+            // Bank angle smoothly transitions based on turn input (A/D)
+            float targetRoll = -turnInput * maxBankAngle;
+            float currentRoll = transform.eulerAngles.z;
+            float rollError = Mathf.DeltaAngle(currentRoll, targetRoll);
+            float rollStep = rollError * rollControlSpeed * Time.fixedDeltaTime;
+
+            // Yaw turns proportionately to our turn input input
+            float yawStep = turnInput * turnSpeed * Time.fixedDeltaTime;
+
+            // Pitch controlled by Up/Down Arrows (Aircraft style: down arrow = nose up)
+            float pitchInput = 0f;
+            if (Input.GetKey(KeyCode.UpArrow)) pitchInput = 0.1f;   // Nose dive
+            if (Input.GetKey(KeyCode.DownArrow)) pitchInput = -0.1f; // Nose climb
+
+            float pitchStep = pitchInput * pitchControlSpeed * Time.fixedDeltaTime;
+
+            // Apply realistic local rotations
+            rb.MoveRotation(rb.rotation * Quaternion.Euler(pitchStep, yawStep, rollStep));
+        }
+        else
+        {
+            // Ground turning (flat) or Landing phase turning
+            float turn = turnInput * turnSpeed * Time.fixedDeltaTime;
+            rb.MoveRotation(rb.rotation * Quaternion.Euler(0f, turn, 0f));
+
+            if (!isLanding && !isAirborne)
+            {
+                // Ensure plane remains un-rolled when on the ground
+                Vector3 euler = transform.eulerAngles;
+                euler.z = Mathf.MoveTowardsAngle(euler.z, 0f, 60f * Time.fixedDeltaTime);
+                transform.eulerAngles = euler;
+            }
+        }
 
         // 2. Speed Control
         float forwardInput = Input.GetAxis("Vertical");
@@ -196,25 +231,30 @@ public class Controls : MonoBehaviour
             }
         }
         // =============================================
-        // CRUISING / FLOATING
+        // CRUISING / MANUAL FLIGHT
         // =============================================
         else if (isAirborne)
         {
-            Vector3 currentEuler = transform.eulerAngles;
-            float pitchError = Mathf.DeltaAngle(currentEuler.x, 0f);
+            // Auto level pitch & roll VERY slowly if no inputs are pressed to maintain simplicity
+            bool hasManualPitch = Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow);
+            bool hasManualRoll = Mathf.Abs(turnInput) > 0.1f;
 
-            if (Mathf.Abs(pitchError) > 0.05f)
+            if (!hasManualPitch && !hasManualRoll)
             {
-                Quaternion targetRotation = Quaternion.Euler(0f, currentEuler.y, 0f);
-                float recoverSpeed = levelOutRate * Time.fixedDeltaTime;
-                Quaternion leveledRotation = Quaternion.RotateTowards(
-                    rb.rotation, targetRotation, recoverSpeed);
-                rb.MoveRotation(leveledRotation);
+                Vector3 currentEuler = transform.eulerAngles;
+                float pitchError = Mathf.DeltaAngle(currentEuler.x, 0f);
+                float rollError = Mathf.DeltaAngle(currentEuler.z, 0f);
+
+                if (Mathf.Abs(pitchError) > 0.05f || Mathf.Abs(rollError) > 0.05f)
+                {
+                    Quaternion targetRotation = Quaternion.Euler(0f, currentEuler.y, 0f);
+                    float recoverSpeed = levelOutRate * 5f * Time.fixedDeltaTime; // Multiply slightly since levelOutRate originally was for taking off
+                    rb.MoveRotation(Quaternion.RotateTowards(rb.rotation, targetRotation, recoverSpeed));
+                }
             }
 
-            Vector3 flightVelocity = transform.forward * currentSpeed;
-            flightVelocity.y = 0f;
-            rb.linearVelocity = flightVelocity;
+            // Fly realistically in true 3D (allow climbing/diving based on pitch, rather than clamping y=0)
+            rb.linearVelocity = transform.forward * currentSpeed;
         }
         // =============================================
         // ON GROUND
