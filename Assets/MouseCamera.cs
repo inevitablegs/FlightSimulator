@@ -24,11 +24,14 @@ public class MouseCamera : MonoBehaviour
         xRotation -= mouseY;
         xRotation = Mathf.Clamp(xRotation, -35f, 60f);
 
-        Quaternion rotation = Quaternion.Euler(xRotation, yRotation, 0);
+        // Include the target's rotation so the camera bank/roll matches the plane
+        Quaternion rotation = target.rotation * Quaternion.Euler(xRotation, yRotation, 0);
 
-        Vector3 position = target.position - rotation * Vector3.forward * distance + Vector3.up * height;
+        // Calculate offset position from the rotated plane's perspective
+        Vector3 position = target.position - rotation * Vector3.forward * distance + target.up * height;
 
         transform.position = position;
-        transform.LookAt(target);
+        // Make the camera look at the target, but keep its 'up' vector aligned with the plane's 'up'
+        transform.LookAt(target, target.up);
     }
 }

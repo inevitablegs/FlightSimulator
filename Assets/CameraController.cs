@@ -16,11 +16,13 @@ public class CameraController : MonoBehaviour
 
         mouseY = Mathf.Clamp(mouseY, -30f, 60f);
 
-        Quaternion rotation = Quaternion.Euler(mouseY, mouseX, 0);
+        // Multiply target.rotation to inherit the plane's yaw, pitch, and roll
+        Quaternion rotation = target.rotation * Quaternion.Euler(mouseY, mouseX, 0);
 
         Vector3 position = target.position - rotation * Vector3.forward * distance;
 
         transform.position = position;
-        transform.LookAt(target);
+        // Use the combined rotation instead of LookAt so the camera banks with the plane
+        transform.rotation = rotation;
     }
 }

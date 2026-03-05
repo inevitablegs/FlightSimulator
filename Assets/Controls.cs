@@ -26,6 +26,12 @@ public class Controls : MonoBehaviour
     public float rollControlSpeed = .3f;
     public float pitchControlSpeed = 60f;
 
+    [Header("Audio")]
+    public AudioSource engineSound;
+    public float idleEnginePitch = 0.5f;
+    public float maxEnginePitch = 2.0f;
+    public float engineVolumeChangeSpeed = 0.5f;
+
     private Rigidbody rb;
     private float currentSpeed = 0f;
     private float currentLiftBlend = 0f;
@@ -45,6 +51,44 @@ public class Controls : MonoBehaviour
         rb.angularDamping = 2f;
         rb.useGravity = false;
         groundLevel = transform.position.y;
+
+        // Auto-fetch or create AudioSource
+        if (engineSound == null) 
+        {
+            engineSound = GetComponent<AudioSource>();
+        }
+        if (engineSound != null)
+        {
+            engineSound.loop = true;
+            engineSound.volume = 0f;
+            if (!engineSound.isPlaying)
+            {
+                engineSound.Play();
+            }
+        }
+    }
+
+    void Update()
+    {
+        // Smoothly adjust engine sound based on speed and flight state
+        if (engineSound != null)
+        {
+            float speedRatio = currentSpeed / maxSpeed;
+            
+            // Adjust pitch based on speed
+            float targetPitch = Mathf.Lerp(idleEnginePitch, maxEnginePitch, speedRatio);
+            engineSound.pitch = Mathf.Lerp(engineSound.pitch, targetPitch, engineVolumeChangeSpeed * Time.deltaTime);
+
+            // Adjust volume based on speed AND airborne state
+            float targetVolume = speedRatio;
+            // Add a little extra quietness if on the ground and not moving much
+            if (!isAirborne && currentSpeed < 5f) 
+            {
+                targetVolume = 0f;
+            }
+
+            engineSound.volume = Mathf.MoveTowards(engineSound.volume, targetVolume, engineVolumeChangeSpeed * Time.deltaTime);
+        }
     }
 
     void FixedUpdate()
@@ -55,7 +99,7 @@ public class Controls : MonoBehaviour
         // 1. Turn, Roll, and Pitch
         float turnInput = Input.GetAxis("Horizontal");
 
-        if (isAirborne && !isLanding)
+        if (isAirborne)
         {
             // --- Realistic Airborne Movement ---
             // Bank angle smoothly transitions based on turn input (A/D)
@@ -69,27 +113,27 @@ public class Controls : MonoBehaviour
 
             // Pitch controlled by Up/Down Arrows (Aircraft style: down arrow = nose up)
             float pitchInput = 0f;
-            if (Input.GetKey(KeyCode.UpArrow)) pitchInput = 0.1f;   // Nose dive
-            if (Input.GetKey(KeyCode.DownArrow)) pitchInput = -0.1f; // Nose climb
+            if (Input.GetKey(KeyCode.UpArrow)) pitchInput = .5f;   // Nose dive
+            if (Input.GetKey(KeyCode.DownArrow)) pitchInput = -.5f; // Nose climb
 
             float pitchStep = pitchInput * pitchControlSpeed * Time.fixedDeltaTime;
 
-            // Apply realistic local rotations
-            rb.MoveRotation(rb.rotation * Quaternion.Euler(pitchStep, yawStep, rollStep));
+            // Apply pitch and roll locally, but yaw globally to prevent the nose from dipping when banked
+            Quaternion localRotation = Quaternion.Euler(pitchStep, 0f, rollStep);
+            Quaternion globalYaw = Quaternion.Euler(0f, yawStep, 0f);
+            rb.MoveRotation(globalYaw * rb.rotation * localRotation);
         }
         else
         {
-            // Ground turning (flat) or Landing phase turning
+            // Ground turning (flat)
             float turn = turnInput * turnSpeed * Time.fixedDeltaTime;
             rb.MoveRotation(rb.rotation * Quaternion.Euler(0f, turn, 0f));
 
-            if (!isLanding && !isAirborne)
-            {
-                // Ensure plane remains un-rolled when on the ground
-                Vector3 euler = transform.eulerAngles;
-                euler.z = Mathf.MoveTowardsAngle(euler.z, 0f, 60f * Time.fixedDeltaTime);
-                transform.eulerAngles = euler;
-            }
+            // Ensure plane remains un-rolled and un-pitched when on the ground
+            Vector3 euler = transform.eulerAngles;
+            euler.z = Mathf.MoveTowardsAngle(euler.z, 0f, 60f * Time.fixedDeltaTime);
+            euler.x = Mathf.MoveTowardsAngle(euler.x, 0f, 60f * Time.fixedDeltaTime);
+            transform.eulerAngles = euler;
         }
 
         // 2. Speed Control
